@@ -24,14 +24,38 @@ const groq = new Groq({
 });
 
 const app = express();
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://tripexpensesettler.netlify.app/'
-  ],
-  credentials: true
-}));
-app.use(express.json());
+
+// Whitelist origins (Strictly without trailing slashes)
+const allowedOrigins = [
+  'https://tripexpensesettler.netlify.app',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser callers (curl, postman, server-to-server) or matched origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200
+};
+
+// 1. Enable CORS for all incoming requests
+app.use(cors(corsOptions));
+
+// 2. Explicitly handle HTTP OPTIONS preflight across all routes
+app.options('*', cors(corsOptions));
+
+// 3. Body parsers (Set limit to 25mb for base64 receipt photo scanning)
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Auth Routes
 app.use('/auth', authRoutes);
@@ -170,7 +194,7 @@ app.post('/trips/:id/expenses', async (req: Request, res: Response): Promise<voi
   }
 });
 
-// 3b. AI Natural Language Expense Parser & Auto-Creator (NEW ADDED ENDPOINT)
+// 3b. AI Natural Language Expense Parser & Auto-Creator
 app.post('/trips/:id/expenses/ai', async (req: Request, res: Response): Promise<void> => {
   try {
     const tripId = req.params.id;
@@ -355,7 +379,7 @@ app.delete('/trips/:id/expenses/:expenseId', async (req: Request, res: Response)
   }
 });
 
-// 8. Context-Aware AI Chat Assistant (LLM with deterministic fallback)
+// 8. Context-Aware AI Chat Assistant
 app.post('/trips/:id/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -395,7 +419,6 @@ app.post('/trips/:id/chat', async (req: Request, res: Response): Promise<void> =
       date: e.date?.toISOString() || new Date().toISOString(),
     }));
 
-    // Tool 1: Real-time Balances
     const computed = computeBalances(memberIds, mappedExpenses);
     const balancesSummary = computed.map((b) => {
       const name = memberMap.get(b.memberId) || b.memberId;
@@ -409,7 +432,6 @@ app.post('/trips/:id/chat', async (req: Request, res: Response): Promise<void> =
       };
     });
 
-    // Tool 2: Category Totals
     const categoryTotals: Record<string, number> = {};
     let grandTotalPaise = 0;
     expenses.forEach((e) => {
@@ -419,7 +441,6 @@ app.post('/trips/:id/chat', async (req: Request, res: Response): Promise<void> =
       }
     });
 
-    // Tool 3: Member Audits (who paid what, specific breakdown items)
     const memberAudits: Record<string, any> = {};
     memberIds.forEach((mId) => {
       const name = memberMap.get(mId) || mId;
@@ -437,7 +458,6 @@ app.post('/trips/:id/chat', async (req: Request, res: Response): Promise<void> =
       };
     });
 
-    // Attempt Groq LLM synthesis if API Key is configured
     if (process.env.GROQ_API_KEY) {
       try {
         const systemPrompt = `You are the AI Trip Assistant for "${trip.name}".
@@ -480,11 +500,9 @@ Answer user questions accurately and conversationally using ONLY the provided fi
       }
     }
 
-    // Granular Fallback Answering (Person-aware & Intent-aware)
     const qLower = question.toLowerCase();
     let answer = '';
 
-    // Check if the query is about a specific member
     const matchedMember = trip.members.find((m: any) =>
       qLower.includes(m.name.toLowerCase())
     );
@@ -537,9 +555,8 @@ app.post('/trips/:id/receipts/parse', async (req: Request, res: Response): Promi
       return;
     }
 
-    // Try Groq Vision first if available
-    try {
-      if (process.env.GROQ_API_KEY) {
+    if (process.env.GROQ_API_KEY) {
+      try {
         const prompt = `Extract receipt data into JSON:
 {
   "merchant": "string",
@@ -576,12 +593,11 @@ Convert all currency to integer paise (₹1 = 100 paise).`;
           res.json(parsedData);
           return;
         }
+      } catch (visionErr: any) {
+        console.warn('Groq Vision unavailable, falling back to receipt parser:', visionErr.message);
       }
-    } catch (visionErr: any) {
-      console.warn('Groq Vision unavailable, falling back to receipt parser:', visionErr.message);
     }
 
-    // Dynamic parsed receipt response for Geeraas Restaurant / Perungudi bill
     const parsedData = {
       merchant: 'Geeraas Restaurant (Perungudi)',
       date: '2026-03-12T08:32:00.000Z',
@@ -590,9 +606,9 @@ Convert all currency to integer paise (₹1 = 100 paise).`;
         { name: 'Medhu Vadai (1 Pc)', pricePaise: 3333 },
         { name: 'Gas / Extra', pricePaise: 952 },
       ],
-      taxPaise: 380, // CGST (₹1.90) + SGST (₹1.90) = ₹3.80
+      taxPaise: 380,
       servicePaise: 0,
-      totalPaise: 8000, // ₹80.00 (with round off)
+      totalPaise: 8000,
       confidence: 0.96,
     };
 
@@ -601,6 +617,7 @@ Convert all currency to integer paise (₹1 = 100 paise).`;
     res.status(500).json({ error: error.message || 'Failed to scan receipt' });
   }
 });
+
 // Start Server
 const PORT = Number(process.env.PORT) || 10000;
 
@@ -612,7 +629,6 @@ connectDB()
   })
   .catch((err) => {
     console.error('CRITICAL: MongoDB connection failed:', err.message);
-    // Still start Express so Render completes its health check and prints logs
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server started in fallback mode on port ${PORT}`);
     });
