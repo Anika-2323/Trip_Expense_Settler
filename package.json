@@ -2,8 +2,7 @@
   "name": "trip-expense-settler",
   "version": "1.0.0",
   "description": "",
-  "main": "src/server.ts",
-  "type": "module",
+  "main": "dist/server.js",
   "scripts": {
     "test": "vitest run",
     "dev": "tsx watch src/server.ts",
