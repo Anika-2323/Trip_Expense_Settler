@@ -27,7 +27,7 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://<your-netlify-subdomain>.netlify.app'
+    'https://tripexpensesettler.netlify.app/'
   ],
   credentials: true
 }));
