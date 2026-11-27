@@ -24,7 +24,13 @@ const groq = new Groq({
 });
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://<your-netlify-subdomain>.netlify.app'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Auth Routes
