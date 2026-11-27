@@ -1,0 +1,1 @@
+"/*    /index.html   200" | Out-File -Encoding ascii client/public/_redirects
