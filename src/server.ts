@@ -595,11 +595,19 @@ Convert all currency to integer paise (₹1 = 100 paise).`;
     res.status(500).json({ error: error.message || 'Failed to scan receipt' });
   }
 });
-
 // Start Server
-const PORT = Number(process.env.PORT) || 5000;
-connectDB().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://127.0.0.1:${PORT}`);
+const PORT = Number(process.env.PORT) || 10000;
+
+connectDB()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('CRITICAL: MongoDB connection failed:', err.message);
+    // Still start Express so Render completes its health check and prints logs
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server started in fallback mode on port ${PORT}`);
+    });
   });
-});
